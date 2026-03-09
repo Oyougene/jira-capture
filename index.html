@@ -676,16 +676,16 @@
       <div class="empty-desc">Type or speak a task. I'll turn it into a Jira ticket in OIT or CRM.</div>
       <div class="quick-examples">
         <div class="quick-chip" onclick="useExample(this)">
-          <span class="chip-prefix">example · OIT</span>
+          <span class="chip-prefix">example · OIT task</span>
           Set up SSO for the new vendor portal
         </div>
         <div class="quick-chip" onclick="useExample(this)">
-          <span class="chip-prefix">example · CRM story</span>
-          Build an LWC that shows account hierarchy in a tree view
+          <span class="chip-prefix">example · CRM epic + stories</span>
+          Create a CRM epic for Knowledge Base improvements with 3 user stories underneath
         </div>
         <div class="quick-chip" onclick="useExample(this)">
-          <span class="chip-prefix">example · voice dump</span>
-          oh yeah I need to follow up with Shane about the territory merge blocking him in Parachute
+          <span class="chip-prefix">example · from URL</span>
+          Parse this meeting into an epic and stories in CRM: https://app.circleback.ai/view/...
         </div>
       </div>
     </div>
@@ -791,9 +791,9 @@ function clearChat() {
       <div class="empty-title">What needs tracking?</div>
       <div class="empty-desc">Type or speak a task. I'll turn it into a Jira ticket in OIT or CRM.</div>
       <div class="quick-examples">
-        <div class="quick-chip" onclick="useExample(this)"><span class="chip-prefix">example · OIT</span>Set up SSO for the new vendor portal</div>
-        <div class="quick-chip" onclick="useExample(this)"><span class="chip-prefix">example · CRM story</span>Build an LWC that shows account hierarchy in a tree view</div>
-        <div class="quick-chip" onclick="useExample(this)"><span class="chip-prefix">example · voice dump</span>oh yeah I need to follow up with Shane about the territory merge blocking him in Parachute</div>
+        <div class="quick-chip" onclick="useExample(this)"><span class="chip-prefix">example · OIT task</span>Set up SSO for the new vendor portal</div>
+        <div class="quick-chip" onclick="useExample(this)"><span class="chip-prefix">example · CRM epic + stories</span>Create a CRM epic for Knowledge Base improvements with 3 user stories underneath</div>
+        <div class="quick-chip" onclick="useExample(this)"><span class="chip-prefix">example · from URL</span>Parse this meeting into an epic and stories in CRM: https://app.circleback.ai/view/...</div>
       </div>
     </div>`;
   document.getElementById('clearBtn').style.display = 'none';
@@ -841,6 +841,29 @@ function addAssistantMessage(text) {
   const el = document.createElement('div');
   el.className = 'msg assistant';
   el.innerHTML = `<div class="msg-label">jira</div><div class="msg-bubble">${escHtml(text)}</div>`;
+  msgs.appendChild(el);
+  scrollToBottom();
+}
+
+function addMultiTicketCard(tickets) {
+  const msgs = document.getElementById('messages');
+  const el = document.createElement('div');
+  el.className = 'msg assistant';
+  const cardsHtml = tickets.map(t => `
+    <div class="ticket-card">
+      <div class="ticket-key"><a href="${t.url}" target="_blank">${t.key}</a></div>
+      <div class="ticket-summary">${escHtml(t.summary)}</div>
+      <div class="ticket-meta">
+        <span class="ticket-tag">${t.priority || 'Medium'}</span>
+        <span class="ticket-tag">${t.key.startsWith('OIT') ? 'OIT' : 'CRM'}</span>
+      </div>
+    </div>`).join('');
+  el.innerHTML = `
+    <div class="msg-label">jira</div>
+    <div class="msg-bubble">
+      ${tickets.length} tickets created ✓
+      ${cardsHtml}
+    </div>`;
   msgs.appendChild(el);
   scrollToBottom();
 }
@@ -1084,7 +1107,12 @@ async function runAgentLoop() {
     const response = await callClaude(conversationHistory);
     removeThinking();
     
-    if (response.startsWith('TICKET_CREATED:')) {
+    if (response.startsWith('TICKETS_CREATED:')) {
+      const tickets = JSON.parse(response.slice('TICKETS_CREATED:'.length));
+      conversationHistory.push({ role: 'assistant', content: response });
+      addMultiTicketCard(tickets);
+      setStatus('done ✓');
+    } else if (response.startsWith('TICKET_CREATED:')) {
       const data = JSON.parse(response.slice('TICKET_CREATED:'.length));
       conversationHistory.push({ role: 'assistant', content: response });
       addTicketCard(data);
