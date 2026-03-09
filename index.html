@@ -733,8 +733,8 @@
 
 <script>
 // ─── STATE ───
-const CLOUD_ID = 'acd19074-1ce3-4825-b18f-d420ac0ee326';
-const JIRA_SITE = 'https://betabionics.atlassian.net';
+
+
 
 let conversationHistory = [];
 let isLoading = false;
@@ -745,31 +745,7 @@ let pendingTranscript = '';
 let modalResolve = null;
 let selectedModalValue = null;
 
-// ─── SYSTEM PROMPT ───
-const SYSTEM_PROMPT = `You are a Jira ticket creation assistant for Oen at Beta Bionics. You create tickets at betabionics.atlassian.net (Cloud ID: ${CLOUD_ID}).
-
-RULES:
-- Only create tickets in OIT (Tasks) or CRM (Task, Story, Bug, Epic) projects
-- Always confirm project before creating anything
-- For CRM, also confirm issue type if not specified
-- Write clean, action-oriented summaries starting with a verb
-- For CRM Stories, use user story format: "As a [persona], I want [goal], so that [outcome]"
-- Include acceptance criteria for CRM Stories (3-6 specific, testable Salesforce-developer-facing criteria)
-
-RESPONSE FORMAT:
-- Keep responses short and conversational
-- When you need clarification on project or issue type, ask ONE clear question
-- When you successfully create a ticket, respond with EXACTLY this JSON block (and nothing else before or after):
-TICKET_CREATED:{"key":"XXX-###","summary":"...","priority":"Medium","url":"${JIRA_SITE}/browse/XXX-###"}
-
-- If you need to ask about project or issue type, respond with:
-NEED_INFO:{"question":"...","options":[{"value":"...","label":"...","icon":"...","desc":"..."}]}
-
-- For anything else (errors, clarifications), respond in plain text.
-
-Today's date: ${new Date().toLocaleDateString('en-US', {weekday:'long', year:'numeric', month:'long', day:'numeric'})}.
-
-The user will send you task descriptions — raw, voice-transcribed, or typed. Your job is to extract the task, determine the right project/type, and create the ticket via the Atlassian MCP.`;
+// System prompt lives server-side in the Cloudflare Worker.
 
 // ─── UI HELPERS ───
 function autoResize(el) {
@@ -1152,88 +1128,33 @@ async function runAgentLoop() {
   updateSendBtn();
 }
 
-// ─── CALL CLAUDE API ───
+// ─── WORKER PROXY URL ───
+// After deploying your Cloudflare Worker, paste its URL here.
+// e.g. 'https://jira-capture.your-username.workers.dev'
+const WORKER_URL = 'https://jira-capture.oeugene.workers.dev';
+
+// ─── CALL CLAUDE VIA WORKER PROXY ───
 async function callClaude(messages) {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error('No API key set. Tap the ⚙ button to add your Anthropic API key.');
+  if (WORKER_URL === 'YOUR_WORKER_URL_HERE') {
+    throw new Error('Worker URL not configured. Open index.html and set WORKER_URL at the top of the script.');
   }
-  
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+
+  const res = await fetch(WORKER_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages,
-      tools: [{
-        type: 'computer_20241022',
-        name: 'computer',
-        display_width_px: 1,
-        display_height_px: 1,
-        display_number: 1
-      }],
-      mcp_servers: [{
-        type: 'url',
-        url: 'https://mcp.atlassian.com/v1/mcp',
-        name: 'atlassian-mcp'
-      }]
-    })
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages }),
   });
-  
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `API error ${res.status}`);
-  }
-  
+
   const data = await res.json();
-  
-  // Extract text from response
-  const textBlocks = data.content.filter(b => b.type === 'text').map(b => b.text);
+
+  if (!res.ok) {
+    throw new Error(data?.error || `Proxy error ${res.status}`);
+  }
+
+  // Extract text blocks from Anthropic response
+  const textBlocks = (data.content || []).filter(b => b.type === 'text').map(b => b.text);
   return textBlocks.join('').trim();
 }
-
-// ─── API KEY STORAGE ───
-function getApiKey() {
-  return sessionStorage.getItem('anthropic_key') || localStorage.getItem('anthropic_key') || '';
-}
-
-function setApiKey(key) {
-  localStorage.setItem('anthropic_key', key);
-  sessionStorage.setItem('anthropic_key', key);
-}
-
-// ─── SETTINGS ───
-function promptApiKey() {
-  const current = getApiKey();
-  const key = prompt('Enter your Anthropic API key:', current ? '••••' + current.slice(-4) : '');
-  if (key && key !== '••••' + (current || '').slice(-4)) {
-    setApiKey(key.trim());
-    addAssistantMessage('API key saved. Ready to create tickets!');
-  }
-}
-
-// Show API key prompt if no key set
-window.addEventListener('load', () => {
-  if (!getApiKey()) {
-    setTimeout(() => {
-      addAssistantMessage("Welcome! To get started, I need your Anthropic API key. Tap below to add it.");
-      hideEmpty();
-      
-      const msgs = document.getElementById('messages');
-      const btn = document.createElement('div');
-      btn.className = 'msg assistant';
-      btn.innerHTML = `<div class="msg-label"> </div><div class="msg-bubble" style="cursor:pointer;border-color:var(--accent);background:var(--accent-soft)" onclick="promptApiKey()">🔑 Set API Key →</div>`;
-      msgs.appendChild(btn);
-      scrollToBottom();
-    }, 300);
-  }
-});
 
 // Handle Siri Shortcut URL parameter: jira-capture.html?task=...
 window.addEventListener('load', () => {
